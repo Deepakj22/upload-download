@@ -1,0 +1,58 @@
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+  tags:
+    include:
+      - v*
+  paths:
+    include:
+      - adh_knowledge_frontend/*
+      - adh_knowledge_frontend/**
+      - azure-pipelines.yml
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - adh_knowledge_frontend/*
+      - adh_knowledge_frontend/**
+      - azure-pipelines.yml
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  imageRepository: adh-knowledge-frontend
+
+steps:
+  - checkout: self
+
+  # Pull requests build the image for validation without ACR credentials or publishing.
+  - task: Docker@2
+    displayName: Build Docker image (PR validation)
+    condition: eq(variables['Build.Reason'], 'PullRequest')
+    inputs:
+      command: build
+      repository: $(imageRepository)
+      Dockerfile: $(Build.SourcesDirectory)/adh_knowledge_frontend/Dockerfile
+      buildContext: $(Build.SourcesDirectory)/adh_knowledge_frontend
+      tags: $(Build.BuildId)
+
+  # Create an ACR service connection named in the ACR_SERVICE_CONNECTION pipeline variable.
+  # Prefer workload identity federation and grant it AcrPush access to the target registry.
+  - task: Docker@2
+    displayName: Build and push Docker image to ACR
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/tags/v')))
+    inputs:
+      command: buildAndPush
+      containerRegistry: $(ACR_SERVICE_CONNECTION)
+      repository: $(imageRepository)
+      Dockerfile: $(Build.SourcesDirectory)/adh_knowledge_frontend/Dockerfile
+      buildContext: $(Build.SourcesDirectory)/adh_knowledge_frontend
+      tags: |
+        $(Build.BuildId)
+        $(Build.SourceBranchName)
